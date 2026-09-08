@@ -2,9 +2,9 @@
 #PBS -l select=1:ncpus=24:mpiprocs=24
 #PBS -l walltime=96:00:00
 #PBS -q smp
-#PBS -P CBBI1638
-#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/gvcfs/out_chr11.txt
-#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/gvcfs/err_chr11.txt
+#PBS -P C******
+#PBS -o /mnt/All_projects/AsianZebu/SNPs/gvcfs/out_chr11.txt
+#PBS -e /mnt/All_projects/AsianZebu/SNPs/gvcfs/err_chr11.txt
 #PBS -N chr11
 #PBS -M tafarakmavunga@gmail.com
 #PBS -m abe
