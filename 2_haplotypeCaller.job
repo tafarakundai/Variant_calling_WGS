@@ -19,9 +19,9 @@ module add samtools
 
 # Configuration
 BREED="Angoni"
-BASE_DIR=/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs
+BASE_DIR=/mnt/All_projects/AsianZebu/SNPs
 DATA_DIR=$BASE_DIR/$BREED
-REFERENCE=/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa
+REFERENCE=/mnt/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa
 ALIGN_DIR=$DATA_DIR/aligned
 GVCF_DIR=$BASE_DIR/gvcfs
 INTERVAL_DIR=$DATA_DIR/intervals
