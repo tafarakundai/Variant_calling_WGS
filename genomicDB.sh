@@ -5,8 +5,8 @@
 # genotypes them into a final VCF — shown for one chromosome
 # ============================================================
 
-REFERENCE=/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa
-WORK_DIR=/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs
+REFERENCE=/mnt/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa
+WORK_DIR=/mnt/All_projects/AsianZebu/SNPs
 GENOMICSDB_DIR=$WORK_DIR/genomicsdb_per_chromosome
 OUTPUT_DIR=$WORK_DIR/vcf_per_chromosome
 CHROM=NC_091760.1        # one chromosome, for teaching
