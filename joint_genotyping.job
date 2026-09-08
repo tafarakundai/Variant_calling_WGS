@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=24:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/geno_chr18_out.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/geno_chr18_err.txt
+#PBS -N geno_chr18
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+# Joint Genotyping for Chromosome 
+
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+
+# Paths
+CHROMOSOME="NC_091777.1"
+WORK_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs"
+GENOMICSDB="${WORK_DIR}/genomicsdb_per_chromosome/${CHROMOSOME}"
+REFERENCE="/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa"
+OUTPUT_DIR="${WORK_DIR}/01_raw_vcfs"
+OUTPUT_VCF="${OUTPUT_DIR}/${CHROMOSOME}.raw.vcf.gz"
+TMP_DIR="${WORK_DIR}/tmp_genotype_${CHROMOSOME}_$$"
+
+mkdir -p ${OUTPUT_DIR} ${TMP_DIR} ${WORK_DIR}/logs
+
+# Run GenotypeGVCFs (using defaults - GATK will auto-detect available resources)
+gatk GenotypeGVCFs \
+    -R ${REFERENCE} \
+    -V gendb://${GENOMICSDB} \
+    -O ${OUTPUT_VCF} \
+    -L ${CHROMOSOME} \
+    --tmp-dir ${TMP_DIR}
+
+# Check results
+if [ $? -eq 0 ]; then
+    VARIANTS=$(zcat ${OUTPUT_VCF} | grep -v "^#" | wc -l)
+    echo "SUCCESS: ${VARIANTS} variants called"
+    echo "Output: ${OUTPUT_VCF}"
+else
+    echo "FAILED"
+    exit 1
+fi
+
+rm -rf ${TMP_DIR}

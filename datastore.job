@@ -1,0 +1,119 @@
+#!/usr/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=96:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/gvcfs/out_chr11.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/gvcfs/err_chr11.txt
+#PBS -N chr11
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+
+# Load Required Modules
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+module add samtools 
+
+# GenomicsDBImport for Zebu - Chromosome-based Processing
+# Processes all 95 samples per chromosome separately
+
+# Define paths
+WORK_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs"
+GVCF_DIR="${WORK_DIR}/gvcfs"
+SAMPLE_MAP="${GVCF_DIR}/cohort_$(date +%Y%m%d_%H%M%S).sample_map"
+GENOMICSDB_DIR="${WORK_DIR}/genomicsdb_per_chromosome"
+
+# Create a UNIQUE temporary directory for this run
+TMP_DIR="${WORK_DIR}/tmp_genomicsdb_$(date +%s)_$$"  # timestamp + process ID
+
+# Define which chromosomes to process
+CHROMOSOMES=(
+    "NC_091770.1"   
+)
+
+# Automatically create sample map from all .g.vcf.gz files
+echo "Creating sample map from GVCF files..."
+echo "Temporary directory: ${TMP_DIR}"
+> ${SAMPLE_MAP}  # Clear the file first
+
+for gvcf_file in ${GVCF_DIR}/*.g.vcf.gz; do
+    if [ -f "${gvcf_file}" ]; then
+        sample_name=$(basename ${gvcf_file} .g.vcf.gz)
+        echo -e "${sample_name}\t${gvcf_file}" >> ${SAMPLE_MAP}
+    fi
+done
+
+# Count samples
+SAMPLE_COUNT=$(wc -l < ${SAMPLE_MAP})
+echo "Found ${SAMPLE_COUNT} samples"
+
+if [ ${SAMPLE_COUNT} -eq 0 ]; then
+    echo "ERROR: No GVCF files found in ${GVCF_DIR}"
+    exit 1
+fi
+
+# Prepare directories
+mkdir -p ${TMP_DIR}
+mkdir -p ${GENOMICSDB_DIR}
+
+echo ""
+echo "=== Processing Plan ==="
+echo "Total samples: ${SAMPLE_COUNT}"
+echo "Total chromosomes in this batch: ${#CHROMOSOMES[@]}"
+echo "Temporary directory: ${TMP_DIR}"
+echo ""
+
+# Process each chromosome
+CHROM_NUM=0
+TOTAL_CHROMS=${#CHROMOSOMES[@]}
+
+for chromosome in "${CHROMOSOMES[@]}"; do
+    CHROM_NUM=$((CHROM_NUM + 1))
+    CHROM_WORKSPACE="${GENOMICSDB_DIR}/${chromosome}"
+    
+    echo "=== Processing Chromosome ${CHROM_NUM}/${TOTAL_CHROMS}: ${chromosome} ==="
+    echo "Start time: $(date)"
+    
+    # Remove existing chromosome workspace if present
+    if [ -d "${CHROM_WORKSPACE}" ]; then
+        echo "Removing existing workspace for ${chromosome}..."
+        rm -rf ${CHROM_WORKSPACE}
+    fi
+    
+    # Run GenomicsDBImport for this chromosome
+    gatk --java-options "-XX:+UseParallelGC" GenomicsDBImport \
+        --genomicsdb-workspace-path ${CHROM_WORKSPACE} \
+        --sample-name-map ${SAMPLE_MAP} \
+        --intervals ${chromosome} \
+        --tmp-dir ${TMP_DIR} \
+        --reader-threads 20 \
+        --max-num-intervals-to-import-in-parallel 1 \
+        --batch-size 0 \
+        --consolidate \
+        --genomicsdb-shared-posixfs-optimizations true \
+        --verbosity INFO
+    
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to process chromosome ${chromosome}"
+        echo "Temporary directory ${TMP_DIR} preserved for debugging"
+        exit 1
+    fi
+    
+    echo "Chromosome ${chromosome} completed successfully"
+    echo "End time: $(date)"
+    echo ""
+done
+
+# Clean up
+echo "=== Cleaning up ==="
+rm -rf ${TMP_DIR}
+echo "Cleaned up temporary directory: ${TMP_DIR}"
+
+echo ""
+echo "=== Final Summary ==="
+echo "Total samples processed: ${SAMPLE_COUNT}"
+echo "Total chromosomes processed: ${TOTAL_CHROMS}"
+echo "GenomicsDB workspaces created in: ${GENOMICSDB_DIR}/"
+echo ""
+echo "GenomicsDBImport completed successfully!"

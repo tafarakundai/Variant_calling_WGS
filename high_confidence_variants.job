@@ -1,0 +1,72 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=24:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/split_out.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/split_err.txt
+#PBS -N split
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+# Load Required Modules
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+
+# Set paths 
+REF="/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa"
+VCF_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/01_raw_vcfs"
+OUTPUT_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/02_split_variants"
+
+# Create output directory if it doesn't exist
+mkdir -p $OUTPUT_DIR
+
+# Define chromosomes to process
+CHROMOSOMES=(
+    "NC_091760.1" "NC_091761.1" "NC_091762.1" "NC_091763.1" "NC_091764.1"
+    "NC_091765.1" "NC_091766.1" "NC_091767.1" "NC_091768.1" "NC_091769.1"
+    "NC_091770.1" "NC_091771.1" "NC_091772.1" "NC_091773.1" "NC_091774.1"
+)
+
+# Process only specified chromosomes
+for CHROM in "${CHROMOSOMES[@]}"
+do
+  INPUT_VCF="${VCF_DIR}/${CHROM}.raw.vcf.gz"
+  
+  # Check if the input file exists
+  if [[ ! -f $INPUT_VCF ]]; then
+    echo "Warning: $INPUT_VCF not found, skipping..."
+    continue
+  fi
+  
+  # Output files in the new directory
+  SNP_VCF="${OUTPUT_DIR}/${CHROM}.SNPs.vcf.gz"
+  INDEL_VCF="${OUTPUT_DIR}/${CHROM}.INDELs.vcf.gz"
+  
+  echo "Processing chromosome: $CHROM"
+  echo "  Input: $INPUT_VCF"
+  
+  # Split SNPs
+  echo "  Selecting SNPs..."
+  gatk SelectVariants \
+    -R $REF \
+    -V $INPUT_VCF \
+    --select-type-to-include SNP \
+    -O $SNP_VCF
+  
+  # Split INDELs
+  echo "  Selecting INDELs..."
+  gatk SelectVariants \
+    -R $REF \
+    -V $INPUT_VCF \
+    --select-type-to-include INDEL \
+    -O $INDEL_VCF
+  
+  echo "  Output SNPs: $SNP_VCF"
+  echo "  Output INDELs: $INDEL_VCF"
+  echo "  Done with $CHROM"
+  echo ""
+done
+
+echo "All specified chromosomes processed!"
+echo "Output stored in: $OUTPUT_DIR"

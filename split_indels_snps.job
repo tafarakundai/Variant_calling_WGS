@@ -1,0 +1,72 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=24:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/split_out.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/split_err.txt
+#PBS -N split
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+# Load Required Modules
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+
+# Set paths 
+REF="/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa"
+VCF_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/01_raw_vcfs"
+OUTPUT_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/02_split_variants"
+
+# Create output directory if it doesn't exist
+mkdir -p $OUTPUT_DIR
+
+# Define chromosomes to process
+CHROMOSOMES=(
+    "NC_091775.1" "NC_091776.1" "NC_091777.1" "NC_091778.1" "NC_091779.1"
+    "NC_091780.1" "NC_091781.1" "NC_091782.1" "NC_091783.1" "NC_091784.1"
+    "NC_091785.1" "NC_091786.1" "NC_091787.1" "NC_091788.1"
+)
+
+# Process only specified chromosomes
+for CHROM in "${CHROMOSOMES[@]}"
+do
+  INPUT_VCF="${VCF_DIR}/${CHROM}.raw.vcf.gz"
+  
+  # Check if the input file exists
+  if [[ ! -f $INPUT_VCF ]]; then
+    echo "Warning: $INPUT_VCF not found, skipping..."
+    continue
+  fi
+  
+  # Output files in the new directory
+  SNP_VCF="${OUTPUT_DIR}/${CHROM}.SNPs.vcf.gz"
+  INDEL_VCF="${OUTPUT_DIR}/${CHROM}.INDELs.vcf.gz"
+  
+  echo "Processing chromosome: $CHROM"
+  echo "  Input: $INPUT_VCF"
+  
+  # Split SNPs
+  echo "  Selecting SNPs..."
+  gatk SelectVariants \
+    -R $REF \
+    -V $INPUT_VCF \
+    --select-type-to-include SNP \
+    -O $SNP_VCF
+  
+  # Split INDELs
+  echo "  Selecting INDELs..."
+  gatk SelectVariants \
+    -R $REF \
+    -V $INPUT_VCF \
+    --select-type-to-include INDEL \
+    -O $INDEL_VCF
+  
+  echo "  Output SNPs: $SNP_VCF"
+  echo "  Output INDELs: $INDEL_VCF"
+  echo "  Done with $CHROM"
+  echo ""
+done
+
+echo "All specified chromosomes processed!"
+echo "Output stored in: $OUTPUT_DIR"

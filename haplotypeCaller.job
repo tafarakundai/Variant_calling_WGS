@@ -1,0 +1,158 @@
+#!/usr/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=96:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/Angoni/out_haplotypecaller.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/Angoni/err_haplotypecaller.txt
+#PBS -N ZAG_HC
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+# Optimized HaplotypeCaller with interval-based parallelization
+echo "=== GATK HaplotypeCaller Pipeline - Started: $(date) ==="
+
+# Load modules
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+module add samtools 
+
+# Configuration
+BREED="Angoni"
+BASE_DIR=/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs
+DATA_DIR=$BASE_DIR/$BREED
+REFERENCE=/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa
+ALIGN_DIR=$DATA_DIR/aligned
+GVCF_DIR=$BASE_DIR/gvcfs
+INTERVAL_DIR=$DATA_DIR/intervals
+TEMP_DIR=$DATA_DIR/temp_gvcfs
+
+NUM_INTERVALS=20
+MAX_PARALLEL_JOBS=20
+SAMPLES=("ZAG1" "ZAG2" "ZAG3" "ZAG4" "ZAG5")
+GATK="gatk"
+
+# Create directories
+mkdir -p $GVCF_DIR $INTERVAL_DIR $TEMP_DIR
+
+# Verify reference
+[ ! -f "$REFERENCE" ] && echo "ERROR: Reference not found" && exit 1
+
+# ============================================
+# STEP 1: Create intervals (once)
+# ============================================
+echo -e "\n[1/3] Creating genomic intervals..."
+
+if [ $(ls $INTERVAL_DIR/*.interval_list 2>/dev/null | wc -l) -eq 0 ]; then
+    $GATK SplitIntervals \
+        -R $REFERENCE \
+        --scatter-count $NUM_INTERVALS \
+        -O $INTERVAL_DIR/ \
+        --subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION
+    [ $? -ne 0 ] && echo "ERROR: Interval creation failed" && exit 1
+    echo "Created $NUM_INTERVALS intervals"
+else
+    echo "Intervals already exist, skipping..."
+fi
+
+INTERVAL_FILES=($INTERVAL_DIR/*.interval_list)
+NUM_INTERVAL_FILES=${#INTERVAL_FILES[@]}
+
+# ============================================
+# STEP 2: Process each sample
+# ============================================
+echo -e "\n[2/3] Processing ${#SAMPLES[@]} samples across $NUM_INTERVAL_FILES intervals"
+
+PROCESSED=0
+SKIPPED=0
+FAILED=0
+
+for SAMPLE in "${SAMPLES[@]}"; do
+    INPUT_BAM=$ALIGN_DIR/${SAMPLE}_dedup.bam
+    OUTPUT_GVCF=$GVCF_DIR/${SAMPLE}.g.vcf.gz
+    SAMPLE_TEMP_DIR=$TEMP_DIR/$SAMPLE
+    
+    echo -e "\n--- Sample: $SAMPLE ---"
+    
+    # Validation
+    [ ! -f "$INPUT_BAM" ] && echo "ERROR: BAM not found" && ((FAILED++)) && continue
+    [ -f "$OUTPUT_GVCF" ] && echo "Already exists, skipping" && ((SKIPPED++)) && continue
+    
+    mkdir -p $SAMPLE_TEMP_DIR
+    
+    # Run HaplotypeCaller per interval in parallel
+    echo "Running HaplotypeCaller on intervals (max $MAX_PARALLEL_JOBS parallel)..."
+    for INTERVAL_FILE in "${INTERVAL_FILES[@]}"; do
+        INTERVAL_NAME=$(basename $INTERVAL_FILE .interval_list)
+        INTERVAL_GVCF=$SAMPLE_TEMP_DIR/${SAMPLE}.${INTERVAL_NAME}.g.vcf.gz
+        
+        [ -f "$INTERVAL_GVCF" ] && continue
+        
+        (
+            $GATK HaplotypeCaller \
+                -R $REFERENCE \
+                -I $INPUT_BAM \
+                -L $INTERVAL_FILE \
+                -O $INTERVAL_GVCF \
+                -ERC GVCF \
+                --native-pair-hmm-threads 1 \
+                --dont-use-soft-clipped-bases true \
+                --standard-min-confidence-threshold-for-calling 20.0 \
+                --min-base-quality-score 20 \
+                --read-filter NotDuplicateReadFilter \
+                2>&1 | grep -E "ERROR|WARN" | sed "s/^/  [$INTERVAL_NAME] /"
+        ) &
+        
+        # Control parallelization
+        while [ $(jobs -r | wc -l) -ge $MAX_PARALLEL_JOBS ]; do
+            sleep 2
+        done
+    done
+    
+    wait
+    
+    # Verify all intervals completed
+    INTERVAL_GVCFS=($SAMPLE_TEMP_DIR/*.g.vcf.gz)
+    if [ ${#INTERVAL_GVCFS[@]} -ne $NUM_INTERVAL_FILES ]; then
+        echo "ERROR: Expected $NUM_INTERVAL_FILES intervals, found ${#INTERVAL_GVCFS[@]}"
+        ((FAILED++))
+        continue
+    fi
+    
+    # ============================================
+    # STEP 3: Gather intervals
+    # ============================================
+    echo "Gathering intervals into final GVCF..."
+    
+    INPUT_LIST=$SAMPLE_TEMP_DIR/${SAMPLE}_inputs.list
+    ls $SAMPLE_TEMP_DIR/*.g.vcf.gz | sort > $INPUT_LIST
+    
+    $GATK GatherVcfs -I $INPUT_LIST -O $OUTPUT_GVCF
+    
+    if [ $? -eq 0 ]; then
+        $GATK IndexFeatureFile -I $OUTPUT_GVCF
+        FILE_SIZE_MB=$(($(stat -c%s "$OUTPUT_GVCF") / 1024 / 1024))
+        echo "SUCCESS: $SAMPLE completed ($FILE_SIZE_MB MB)"
+        rm -rf $SAMPLE_TEMP_DIR
+        ((PROCESSED++))
+    else
+        echo "ERROR: GatherVcfs failed"
+        ((FAILED++))
+    fi
+done
+
+# ============================================
+# Summary
+# ============================================
+echo -e "\n=== SUMMARY ==="
+echo "Processed: $PROCESSED | Skipped: $SKIPPED | Failed: $FAILED"
+echo "Output: $GVCF_DIR"
+echo "Completed: $(date)"
+
+ls -lh $GVCF_DIR/*.g.vcf.gz 2>/dev/null
+
+# Cleanup
+rmdir $TEMP_DIR/* 2>/dev/null
+[ -z "$(ls -A $TEMP_DIR 2>/dev/null)" ] && rmdir $TEMP_DIR 2>/dev/null
+
+[ $FAILED -gt 0 ] && exit 1 || exit 0

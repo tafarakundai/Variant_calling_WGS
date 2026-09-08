@@ -1,0 +1,97 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=24:mpiprocs=24
+#PBS -l walltime=24:00:00
+#PBS -q smp
+#PBS -P CBBI1638
+#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/vqsr_out.txt
+#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/logs/vqsr_err.txt
+#PBS -N vqsr_recal
+#PBS -M tafarakmavunga@gmail.com
+#PBS -m abe
+
+# Load Required Modules
+module load chpc/BIOMODULES
+module add gatk/4.2.6.1
+
+# Set paths 
+REF="/mnt/lustre/users/mmalima/All_projects/AsianZebu/NIAB_ARS_BosIndicus_Tharparkar_1.0.fa"
+INPUT_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/02_split_variants"
+SEED_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/03_filtered_variants"
+OUTPUT_DIR="/mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/04_vqsr"
+
+# Create output directory if it doesn't exist
+mkdir -p $OUTPUT_DIR
+
+# Define chromosomes to process
+CHROMOSOMES=(
+    "NC_091775.1" "NC_091776.1" "NC_091777.1" "NC_091778.1" "NC_091779.1"
+    "NC_091780.1" "NC_091781.1" "NC_091782.1" "NC_091783.1" "NC_091784.1"
+    "NC_091785.1" "NC_091786.1" "NC_091787.1" "NC_091788.1"
+)
+
+# Process each chromosome
+for CHROM in "${CHROMOSOMES[@]}"
+do
+  SNP_VCF="${INPUT_DIR}/${CHROM}.SNPs.vcf.gz"
+  INDEL_VCF="${INPUT_DIR}/${CHROM}.INDELs.vcf.gz"
+  SNP_SEED="${SEED_DIR}/${CHROM}.SNPs.seed.vcf.gz"
+  INDEL_SEED="${SEED_DIR}/${CHROM}.INDELs.seed.vcf.gz"
+  
+  # Check if input files exist
+  if [[ ! -f $SNP_VCF ]] || [[ ! -f $SNP_SEED ]]; then
+    echo "Warning: SNP files for $CHROM not found, skipping..."
+    continue
+  fi
+  
+  if [[ ! -f $INDEL_VCF ]] || [[ ! -f $INDEL_SEED ]]; then
+    echo "Warning: INDEL files for $CHROM not found, skipping..."
+    continue
+  fi
+  
+  # Output files
+  SNP_RECAL="${OUTPUT_DIR}/${CHROM}.SNP.recal"
+  SNP_TRANCHES="${OUTPUT_DIR}/${CHROM}.SNP.tranches"
+  INDEL_RECAL="${OUTPUT_DIR}/${CHROM}.INDEL.recal"
+  INDEL_TRANCHES="${OUTPUT_DIR}/${CHROM}.INDEL.tranches"
+  
+  echo "========================================="
+  echo "Processing chromosome: $CHROM"
+  echo "========================================="
+  
+  # Build SNP VQSR model
+  echo "Building SNP VQSR model for $CHROM..."
+  gatk VariantRecalibrator \
+    -R $REF \
+    -V $SNP_VCF \
+    --resource:myTrain,known=false,training=true,truth=true,prior=15.0 $SNP_SEED \
+    -an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR \
+    --mode SNP \
+    --max-gaussians 6 \
+    -tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 97.0 -tranche 95.0 \
+    -O $SNP_RECAL \
+    --tranches-file $SNP_TRANCHES
+  
+  echo "  SNP recalibration file: $SNP_RECAL"
+  
+  # Build INDEL VQSR model
+  echo "Building INDEL VQSR model for $CHROM..."
+  gatk VariantRecalibrator \
+    -R $REF \
+    -V $INDEL_VCF \
+    --resource:myTrainIndel,known=false,training=true,truth=true,prior=12.0 $INDEL_SEED \
+    -an QD -an FS -an ReadPosRankSum -an SOR \
+    --mode INDEL \
+    --max-gaussians 4 \
+    -tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 97.0 \
+    -O $INDEL_RECAL \
+    --tranches-file $INDEL_TRANCHES
+  
+  echo "  INDEL recalibration file: $INDEL_RECAL"
+  echo "Done with $CHROM"
+  echo ""
+done
+
+echo "========================================="
+echo "All chromosomes processed!"
+echo "Output stored in: $OUTPUT_DIR"
+echo "========================================="
