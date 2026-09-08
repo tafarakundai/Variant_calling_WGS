@@ -3,8 +3,8 @@
 #PBS -l walltime=96:00:00
 #PBS -q smp
 #PBS -P CBBI1638
-#PBS -o /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/Angoni/out_haplotypecaller.txt
-#PBS -e /mnt/lustre/users/mmalima/All_projects/AsianZebu/SNPs/Angoni/err_haplotypecaller.txt
+#PBS -o /mnt/All_projects/AsianZebu/SNPs/Angoni/out_haplotypecaller.txt
+#PBS -e /mnt/All_projects/AsianZebu/SNPs/Angoni/err_haplotypecaller.txt
 #PBS -N ZAG_HC
 #PBS -M tafarakmavunga@gmail.com
 #PBS -m abe
